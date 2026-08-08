@@ -1,68 +1,209 @@
 <?php
-require_once 'Database.php';
-require_once 'Libro.php';
-require_once 'Usuario.php';
-require_once 'Prestamo.php';
+require_once __DIR__ . '/Database.php';
+require_once __DIR__ . '/Libro.php';
+require_once __DIR__ . '/Usuario.php';
+require_once __DIR__ . '/Prestamo.php';
 
 class Biblioteca {
-    private $db;
     private $conn;
 
     public function __construct() {
-        // TODO: Inicializar conexión a base de datos
+        $database = new Database();
+        $this->conn = $database->getConnection();
     }
 
-    // Gestión de Libros
     public function agregarLibro(Libro $libro) {
-        // TODO: Insertar libro en base de datos
+        $stmt = $this->conn->prepare('INSERT INTO libros (titulo, autor, isbn, cantidad) VALUES (?, ?, ?, ?)');
+        return $stmt->execute([
+            $libro->getTitulo(),
+            $libro->getAutor(),
+            $libro->getIsbn(),
+            (int) $libro->getCantidad()
+        ]);
     }
 
     public function editarLibro($id, $nuevosDatos) {
-        // TODO: Actualizar libro en base de datos
+        $campos = [];
+        $valores = [];
+
+        if (isset($nuevosDatos['titulo']) && $nuevosDatos['titulo'] !== '') {
+            $campos[] = 'titulo = ?';
+            $valores[] = trim($nuevosDatos['titulo']);
+        }
+
+        if (isset($nuevosDatos['autor']) && $nuevosDatos['autor'] !== '') {
+            $campos[] = 'autor = ?';
+            $valores[] = trim($nuevosDatos['autor']);
+        }
+
+        if (isset($nuevosDatos['isbn']) && $nuevosDatos['isbn'] !== '') {
+            $campos[] = 'isbn = ?';
+            $valores[] = trim($nuevosDatos['isbn']);
+        }
+
+        if (isset($nuevosDatos['cantidad'])) {
+            $campos[] = 'cantidad = ?';
+            $valores[] = (int) $nuevosDatos['cantidad'];
+        }
+
+        if (empty($campos)) {
+            return false;
+        }
+
+        $valores[] = (int) $id;
+        $stmt = $this->conn->prepare('UPDATE libros SET ' . implode(', ', $campos) . ' WHERE id = ?');
+        return $stmt->execute($valores);
     }
 
     public function eliminarLibro($id) {
-        // TODO: Eliminar libro de base de datos
+        $this->conn->beginTransaction();
+
+        try {
+            $stmt = $this->conn->prepare('DELETE FROM prestamos WHERE libro_id = ?');
+            $stmt->execute([(int) $id]);
+
+            $stmt = $this->conn->prepare('DELETE FROM libros WHERE id = ?');
+            $stmt->execute([(int) $id]);
+
+            $this->conn->commit();
+            return true;
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            return false;
+        }
     }
 
     public function obtenerLibros() {
-        // TODO: Retornar lista de libros disponibles
-        return [];
+        $stmt = $this->conn->query('SELECT * FROM libros ORDER BY id DESC');
+        return $stmt->fetchAll();
     }
 
     public function buscarLibro($id) {
-        // TODO: Retornar un libro específico
+        $stmt = $this->conn->prepare('SELECT * FROM libros WHERE id = ?');
+        $stmt->execute([(int) $id]);
+        return $stmt->fetch();
     }
 
-    // Gestión de Usuarios
     public function agregarUsuario(Usuario $usuario) {
-        // TODO: Insertar usuario en base de datos
+        $stmt = $this->conn->prepare('INSERT INTO usuarios (nombre, email, telefono) VALUES (?, ?, ?)');
+        return $stmt->execute([
+            $usuario->getNombre(),
+            $usuario->getEmail(),
+            $usuario->getTelefono()
+        ]);
     }
 
     public function editarUsuario($id, $nuevosDatos) {
-        // TODO: Actualizar usuario en base de datos
+        $campos = [];
+        $valores = [];
+
+        if (isset($nuevosDatos['nombre']) && $nuevosDatos['nombre'] !== '') {
+            $campos[] = 'nombre = ?';
+            $valores[] = trim($nuevosDatos['nombre']);
+        }
+
+        if (isset($nuevosDatos['email']) && $nuevosDatos['email'] !== '') {
+            $campos[] = 'email = ?';
+            $valores[] = trim($nuevosDatos['email']);
+        }
+
+        if (isset($nuevosDatos['telefono'])) {
+            $campos[] = 'telefono = ?';
+            $valores[] = trim($nuevosDatos['telefono']);
+        }
+
+        if (empty($campos)) {
+            return false;
+        }
+
+        $valores[] = (int) $id;
+        $stmt = $this->conn->prepare('UPDATE usuarios SET ' . implode(', ', $campos) . ' WHERE id = ?');
+        return $stmt->execute($valores);
     }
 
     public function eliminarUsuario($id) {
-        // TODO: Eliminar usuario de base de datos
+        $this->conn->beginTransaction();
+
+        try {
+            $stmt = $this->conn->prepare('DELETE FROM prestamos WHERE usuario_id = ?');
+            $stmt->execute([(int) $id]);
+
+            $stmt = $this->conn->prepare('DELETE FROM usuarios WHERE id = ?');
+            $stmt->execute([(int) $id]);
+
+            $this->conn->commit();
+            return true;
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            return false;
+        }
     }
 
     public function obtenerUsuarios() {
-        // TODO: Retornar lista de usuarios
-        return [];
+        $stmt = $this->conn->query('SELECT * FROM usuarios ORDER BY id DESC');
+        return $stmt->fetchAll();
     }
 
-    // Gestión de Préstamos
+    public function buscarUsuario($id) {
+        $stmt = $this->conn->prepare('SELECT * FROM usuarios WHERE id = ?');
+        $stmt->execute([(int) $id]);
+        return $stmt->fetch();
+    }
+
     public function prestarLibro($libro_id, $usuario_id) {
-        // TODO: Crear registro de préstamo y actualizar stock de libros
+        $this->conn->beginTransaction();
+
+        try {
+            $stmt = $this->conn->prepare('SELECT cantidad FROM libros WHERE id = ? LIMIT 1');
+            $stmt->execute([(int) $libro_id]);
+            $libro = $stmt->fetch();
+
+            if (!$libro || (int) $libro['cantidad'] <= 0) {
+                throw new Exception('No hay stock disponible');
+            }
+
+            $stmt = $this->conn->prepare('INSERT INTO prestamos (libro_id, usuario_id, fecha_prestamo, estado) VALUES (?, ?, ?, "activo")');
+            $stmt->execute([(int) $libro_id, (int) $usuario_id, date('Y-m-d')]);
+
+            $stmt = $this->conn->prepare('UPDATE libros SET cantidad = cantidad - 1 WHERE id = ?');
+            $stmt->execute([(int) $libro_id]);
+
+            $this->conn->commit();
+            return true;
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            return false;
+        }
     }
 
     public function devolverLibro($prestamo_id) {
-        // TODO: Actualizar fecha de devolución y estado del préstamo, actualizar stock
+        $this->conn->beginTransaction();
+
+        try {
+            $stmt = $this->conn->prepare('SELECT libro_id FROM prestamos WHERE id = ? AND estado = "activo" LIMIT 1');
+            $stmt->execute([(int) $prestamo_id]);
+            $prestamo = $stmt->fetch();
+
+            if (!$prestamo) {
+                throw new Exception('Préstamo no encontrado o ya devuelto');
+            }
+
+            $stmt = $this->conn->prepare('UPDATE prestamos SET fecha_devolucion = ?, estado = "devuelto" WHERE id = ?');
+            $stmt->execute([date('Y-m-d'), (int) $prestamo_id]);
+
+            $stmt = $this->conn->prepare('UPDATE libros SET cantidad = cantidad + 1 WHERE id = ?');
+            $stmt->execute([(int) $prestamo['libro_id']]);
+
+            $this->conn->commit();
+            return true;
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            return false;
+        }
     }
 
     public function obtenerPrestamosActivos() {
-        // TODO: Retornar lista de préstamos activos
-        return [];
+        $stmt = $this->conn->query('SELECT p.id, p.libro_id, p.usuario_id, p.fecha_prestamo, p.fecha_devolucion, p.estado, l.titulo, u.nombre FROM prestamos p JOIN libros l ON l.id = p.libro_id JOIN usuarios u ON u.id = p.usuario_id WHERE p.estado = "activo" ORDER BY p.id DESC');
+        return $stmt->fetchAll();
     }
 }

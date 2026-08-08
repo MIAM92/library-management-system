@@ -1,1 +1,5 @@
-# Ignore files
+# Archivos temporales y de sistema
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
